@@ -11,7 +11,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+
 
 REPORT_VERSION = 1
 RUN_REDACTION_KEY = os.urandom(32)
@@ -205,6 +205,13 @@ def scan_text(text: str, *, surface: str, location: str, identifiers: list[Ident
     for regex, version in ((IPV4_RE, 4), (IPV6_RE, 6)):
         for match in regex.finditer(text):
             raw = match.group(0)
+            if (
+                version == 6
+                and raw.startswith("::")
+                and match.start() > 0
+                and text[match.start() - 1] == "]"
+            ):
+                continue
             try:
                 parsed = ipaddress.ip_address(raw)
             except ValueError:
@@ -224,10 +231,6 @@ def scan_text(text: str, *, surface: str, location: str, identifiers: list[Ident
 
     for match in URL_RE.finditer(text):
         raw = match.group(0).rstrip(".,;:'\"")
-        if raw.startswith("git@"):
-            host = raw.split("@", 1)[1].split(":", 1)[0]
-        else:
-            host = urlparse(raw).hostname or ""
         add_finding(
             findings,
             surface=surface,

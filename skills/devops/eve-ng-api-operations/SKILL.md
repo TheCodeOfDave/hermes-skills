@@ -1,7 +1,7 @@
 ---
 name: eve-ng-api-operations
 description: Use when operating or troubleshooting EVE-NG through its HTTP API. Applies discovery-first calls, session-safe authentication, explicit side-effect gates, and exact readback verification.
-version: 1.0.0
+version: 1.0.1
 author: Hermes Skills Contributors
 license: MIT
 metadata:
@@ -58,10 +58,39 @@ Resolve these values without printing secret contents:
 Recommended shell setup:
 
 ```bash
+select_python() {
+  if [ -n "${PYTHON:-}" ]; then
+    if "$PYTHON" -c 'raise SystemExit(0)' >/dev/null 2>&1; then
+      export PYTHON
+      return 0
+    fi
+    printf '%s\n' 'Configured PYTHON cannot execute.' >&2
+    return 1
+  fi
+
+  for candidate in python3 python; do
+    if "$candidate" -c 'raise SystemExit(0)' >/dev/null 2>&1; then
+      PYTHON="$candidate"
+      export PYTHON
+      return 0
+    fi
+  done
+
+  printf '%s\n' 'No executable Python interpreter was found.' >&2
+  return 1
+}
+
+select_python || exit 1
+```
+
+An explicit `PYTHON` value is authoritative and must execute successfully; it is not silently replaced. Without an override, the probe tries `python3` and then `python`. This execution test avoids command aliases that resolve but cannot run.
+
+Create the remaining private shell state only after interpreter selection succeeds:
+
+```bash
 umask 077
 EVE_BASE_URL='<scheme>://<eve-ng-host>'
 EVE_COOKIE="$(mktemp)"
-PYTHON="${PYTHON:-python3}"
 ```
 
 Use `https://` for Professional. If the appliance uses a private CA, trust that CA where practical. Use `curl --insecure` only when the user accepts the certificate-validation tradeoff for the named appliance; never make insecure TLS the silent default.
@@ -222,10 +251,85 @@ EVE-NG responses use fields such as `code`, `message`, `status`, and sometimes `
 | `unauthorized` + 400 | Session timed out | Re-authenticate once, then retry the read. |
 | `unauthorized` + 401 | Login required | Check cookie-jar continuity and identity. |
 | `forbidden` + 403 | Insufficient role/privilege | Stop; do not work around permissions. |
-| `fail` | Other 40x request/target problem | Correct path, method, or payload from live evidence. |
+| `fail` | Common 40x request/target problem | Correct path, method, or payload from live evidence; some missing-object responses omit `status`. |
 | `error` | 50x server failure | Preserve response and inspect appliance health/logs. |
 
-Do not accept HTTP 200 alone. Require the JSON status and operation-specific postcondition.
+Normalize `code` before comparing it because installed endpoints can return either a number such as `200` or a digit string such as `"200"`. Reject booleans and unrelated strings, then compare the normalized string with the HTTP status.
+
+Do not accept HTTP 200 alone. Require transport success, the expected HTTP status, the expected JSend status when that status is part of the endpoint contract, and the operation-specific postcondition.
+
+For cleanup, an exact HTTP `404` can prove absence whether JSend `status` is `fail` or omitted, but only when all of these are true: the exact target was absent before creation, creation and marker-bearing readback proved ownership, deletion succeeded, and the readback used the same unambiguous segment-encoded path.
+
+## Reusable Acceptance Runner
+
+Run the repository helper from this skill directory. It uses an in-memory cookie jar, validates transport/HTTP/JSend/postcondition layers, records transport code `0` only after the Python HTTP transport completes, normalizes numeric and string JSend codes, and emits payload-free JSON receipts. It never prints the base URL, credentials, cookies, home folder, generated target names, or API payloads.
+
+Protected environment variables:
+
+- `EVE_BASE_URL`
+- `EVE_USERNAME`
+- `EVE_PASSWORD`
+- optional `EVE_HTML5`, default `0`
+
+Read-only smoke:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 "$PYTHON" scripts/eve_api_acceptance.py \
+  --mode read-only
+```
+
+This authenticates once, confirms session identity, checks appliance status, inventories templates, network types, roles, and the authenticated home folder, then logs out. A second login can invalidate an existing Web UI session for the same account, so confirm that session impact before authenticated testing.
+
+### Disposable create/edit acceptance
+
+Use this branch only after explicit approval to create and modify one generated empty lab. Choose the cleanup flag only after separate explicit approval to delete that temporary lab and its temporary parent folder.
+
+```bash
+RECOVERY_ROOT="${TEMP:-${TMPDIR:-}}"
+if [ -z "$RECOVERY_ROOT" ]; then
+  printf '%s\n' 'TEMP or TMPDIR is required for recovery data' >&2
+  exit 1
+fi
+RECOVERY_DIR="$RECOVERY_ROOT/eve-recovery-$("$PYTHON" -c 'import secrets; print(secrets.token_hex(8))')"
+PYTHONDONTWRITEBYTECODE=1 "$PYTHON" scripts/eve_api_acceptance.py \
+  --prepare-recovery-directory "$RECOVERY_DIR"
+RECOVERY_FILE="$RECOVERY_DIR/targets.json"
+PYTHONDONTWRITEBYTECODE=1 "$PYTHON" scripts/eve_api_acceptance.py \
+  --mode disposable-lab \
+  --approve-create-modify \
+  --approve-delete-temporary-lab-and-folder \
+  --recovery-file "$RECOVERY_FILE"
+if [ ! -e "$RECOVERY_FILE" ]; then
+  rmdir "$RECOVERY_DIR"
+fi
+```
+
+The preparation mode creates a new directory and emits only a sanitized receipt. It fails if the path already exists. On POSIX it enforces mode `0700`; on Windows it removes ACL inheritance, removes every non-allowlisted grant, grants only the current user, SYSTEM, and Administrators, and verifies the resulting owner and allow ACEs by SID. The mutation runner re-verifies the parent before creating the recovery file, then applies and verifies the same Windows boundary on the file before writing target names. Missing PowerShell, `icacls`, untranslatable identities, or any unexpected allow ACE fail closed before the first API mutation; authentication calls may precede the mutation-runner check when preparation is skipped.
+
+The runner performs this exact sequence:
+
+1. Generate collision-resistant folder, lab, and ownership-marker values.
+2. Exclusively create and durably flush the recovery file before any API mutation. The path must not already exist. On POSIX, the runner enforces an owner-only parent and fsyncs both file and parent directory. On Windows, the preparation mode and mutation runner enforce and verify exact native ACLs on the parent and file; unavailable ACL tooling fails closed. Values never go to standard output.
+3. Prove the exact folder and lab paths return `404` before creation.
+4. Create a dedicated folder and empty lab.
+5. Read back name, marker, and version before claiming ownership.
+6. Modify only harmless lab metadata and verify the changed marker, author, and version while the name stays stable.
+7. If deletion was explicitly approved, delete the lab, prove exact `404` absence, then delete the folder and prove exact `404` absence.
+8. Remove the recovery file only after complete cleanup; always attempt logout.
+
+If ownership or cleanup becomes ambiguous, the runner sends no further delete request, retains the recovery file for manual review, and emits only a sanitized failure classification. Do not delete by name pattern. If deletion was not approved, omit `--approve-delete-temporary-lab-and-folder`; the generated objects and recovery file are intentionally retained.
+
+Default TLS verification remains enabled. Pass `--insecure` only under the explicit, appliance-scoped exception described in Prerequisites.
+
+### Deterministic repository validation
+
+Run before live testing and after every skill edit:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 "$PYTHON" scripts/validate_skill.py
+```
+
+The validator checks frontmatter and version, the linked endpoint catalog, 42 unique method/route entries, every Bash fence through raw-byte `bash -n`, Python syntax, generated caches, environment-neutral text patterns, controlled interpreter fallback behavior, and synthetic unit/integration fixtures. This deterministic gate supplements rather than replaces the repository-wide privacy scanner and independent review.
 
 ## API Drift Procedure
 
@@ -250,6 +354,8 @@ Completion criterion: the adapted request is grounded in the live installed vers
 6. **Weak success checks.** HTTP success or a JSend `success` string does not prove state. Read the resource back.
 7. **Credential leakage.** Passwords in command arguments, pasted cookies, and verbose curl traces can enter logs. Inject secrets through protected environment variables and keep tracing off.
 8. **Premature destructive calls.** Wipe and delete routes are not diagnostics. Confirm exact authorization and preserve required state first.
+9. **Assumed JSend envelopes.** A missing object may return `status: fail` or omit `status`. Verify exact HTTP status and ownership context rather than inventing a universal envelope.
+10. **Pattern-based test cleanup.** A generated-looking name is not proof of ownership. Require preflight absence plus marker-bearing readback, and retain ambiguous objects for manual review.
 
 ## Verification Checklist
 
@@ -261,9 +367,11 @@ Completion criterion: the adapted request is grounded in the live installed vers
 - [ ] Lab paths were segment-encoded and metadata-checked.
 - [ ] Side-effect class and approval boundary were satisfied.
 - [ ] The narrowest applicable endpoint was used.
-- [ ] JSend result and exact postcondition both passed.
+- [ ] Transport, HTTP, normalized JSend code/status, and exact postcondition passed.
 - [ ] Destructive operations preserved required pre-change evidence.
+- [ ] Disposable cleanup was ownership-gated and verified lab absence before folder deletion.
 - [ ] Logout was attempted and local cookie residue removed.
 - [ ] Saved artifacts contain no credentials, cookies, private endpoints, or environment fingerprints.
+- [ ] `scripts/validate_skill.py` passed without generating caches.
 
 For the endpoint catalog, load `references/api-endpoints.md` only when selecting a route.
