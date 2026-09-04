@@ -1,7 +1,7 @@
 ---
 name: nornir-network-automation
 description: Use when orchestrating network automation with Nornir. Applies exact inventory scoping, runtime-only credentials, bounded concurrency, explicit result inspection, and read-only-first validation.
-version: 1.0.0
+version: 1.1.0
 author: Hermes Skills Contributors
 license: MIT
 metadata:
@@ -31,6 +31,7 @@ Use this skill for:
 - building or reviewing Nornir inventory and filtering;
 - running read-only collection across multiple network devices;
 - integrating Nornir with NAPALM, Netmiko, Scrapli, or another connection plugin;
+- writing network-free unit tests for Nornir tasks and result handling;
 - choosing serial versus bounded threaded execution;
 - inspecting `AggregatedResult`, `MultiResult`, and `Result` failures;
 - diagnosing skipped hosts, connection lifecycle, or plugin compatibility;
@@ -105,6 +106,14 @@ python -m venv .venv
 On Windows, invoke `.venv/Scripts/python.exe` instead. The versions above are a verified baseline, not a claim that they are the newest releases.
 
 Completion criterion: the interpreter imports Nornir and every selected plugin and prints the expected installed versions.
+
+### 2a. Unit-test task behavior offline
+
+Before using inventory credentials or opening a transport, run custom tasks against neutral in-memory inventory. Test exact filtering, every result layer, nested subtasks, failed-host state, runner parity, mocked connection boundaries, and cleanup.
+
+Load `references/unit-testing-nornir.md` for the reusable harness, executable examples, and the boundary between unit, mock-driver, offline-canary, and live tests.
+
+Completion criterion: the executable unit examples pass without network access, private fixtures, credentials, or uncontrolled tracebacks.
 
 ### 3. Load inventory without secrets
 
@@ -223,6 +232,12 @@ Run deterministic skill validation:
 PYTHONDONTWRITEBYTECODE=1 python scripts/validate_skill.py
 ```
 
+Run the executable Nornir unit-testing examples:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python tests/test_unit_test_harness.py
+```
+
 ## Common Pitfalls
 
 1. **Treating Nornir as a driver.** Install and validate the task/connection plugin separately.
@@ -244,6 +259,7 @@ PYTHONDONTWRITEBYTECODE=1 python scripts/validate_skill.py
 
 - [ ] Purpose, operation class, exact labels, and expected count recorded.
 - [ ] Nornir and plugin versions pinned and import-tested.
+- [ ] Custom tasks passed the network-free unit tests in `references/unit-testing-nornir.md`.
 - [ ] Inventory contains no credentials.
 - [ ] Requested and resolved host sets match exactly.
 - [ ] Runner and worker count are explicit and capacity-justified.
@@ -256,4 +272,4 @@ PYTHONDONTWRITEBYTECODE=1 python scripts/validate_skill.py
 - [ ] Connections and temporary artifacts were cleaned up.
 - [ ] Saved evidence is sanitized and reproducible without credentials.
 - [ ] Configuration work, if any, had separate authorization, diff, canary, rollback, and readback.
-- [ ] `scripts/offline_canary.py` and `scripts/validate_skill.py` passed without network access.
+- [ ] Unit examples, `scripts/offline_canary.py`, and `scripts/validate_skill.py` passed without network access.

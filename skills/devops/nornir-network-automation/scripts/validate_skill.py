@@ -41,7 +41,7 @@ def validate_frontmatter(skill_text: str) -> None:
             key, value = line.split(":", 1)
             fields[key.strip()] = value.strip()
     require(fields.get("name") == "nornir-network-automation", "frontmatter_name")
-    require(fields.get("version") == "1.0.0", "frontmatter_version")
+    require(fields.get("version") == "1.1.0", "frontmatter_version")
     description = fields.get("description", "")
     require(description.startswith("Use when orchestrating network automation"), "description_trigger")
     require(len(description) <= 1024, "description_length")
@@ -51,6 +51,7 @@ def validate_references(skill_dir: Path, skill_text: str) -> int:
     names = [
         "references/inventory-filtering-and-secrets.md",
         "references/napalm-read-only-canary.md",
+        "references/unit-testing-nornir.md",
     ]
     for name in names:
         require(name in skill_text, f"reference_linked:{name}")
@@ -100,6 +101,9 @@ def validate_contract(skill_dir: Path) -> None:
         'getters=["facts"]',
         "failed=false",
         "changed=false",
+        "in-memory inventory",
+        "reset_failed_hosts()",
+        "mocked NAPALM connection",
     )
     for phrase in required:
         require(phrase in all_text, f"contract_phrase:{phrase}")
@@ -157,6 +161,25 @@ def run_offline_canary(skill_dir: Path) -> None:
     )
 
 
+def run_unit_tests(skill_dir: Path) -> None:
+    test_file = skill_dir / "tests" / "test_unit_test_harness.py"
+    try:
+        result = subprocess.run(
+            [sys.executable, "-B", str(test_file)],
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValidationFailure("unit_tests_timeout") from exc
+    require(result.returncode == 0, "unit_tests")
+    require(
+        "Ran 9 tests" in result.stderr and "OK" in result.stderr,
+        "unit_tests_receipt",
+    )
+
+
 def validate(skill_dir: Path) -> dict[str, int | str]:
     skill_text = read_text(skill_dir / "SKILL.md")
     validate_frontmatter(skill_text)
@@ -165,6 +188,7 @@ def validate(skill_dir: Path) -> dict[str, int | str]:
     validate_contract(skill_dir)
     validate_neutrality(skill_dir)
     validate_generated_artifacts(skill_dir)
+    run_unit_tests(skill_dir)
     run_offline_canary(skill_dir)
     return {
         "validation": "PASS",
@@ -172,6 +196,7 @@ def validate(skill_dir: Path) -> dict[str, int | str]:
         "python_files": python_count,
         "python_fences": fence_count,
         "neutrality": "PASS",
+        "unit_tests": "PASS",
         "offline_canary": "PASS",
     }
 

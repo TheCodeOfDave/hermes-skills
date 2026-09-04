@@ -32,6 +32,7 @@ class DeterministicValidatorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("validation=PASS", result.stdout)
         self.assertIn("neutrality=PASS", result.stdout)
+        self.assertIn("unit_tests=PASS", result.stdout)
         self.assertIn("offline_canary=PASS", result.stdout)
 
     def test_weakened_ssh_verification_is_rejected(self):
@@ -67,6 +68,30 @@ class DeterministicValidatorTests(unittest.TestCase):
         self.assertIn("open the jump channel inside the per-host task", reference)
         self.assertIn("Do not pre-open channels", reference)
         self.assertIn("send_command_timing", reference)
+
+    def test_unit_testing_contract_is_documented_and_executable(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        guide_path = SKILL_DIR / "references" / "unit-testing-nornir.md"
+
+        self.assertIn("references/unit-testing-nornir.md", skill)
+        self.assertTrue(guide_path.is_file())
+        guide = guide_path.read_text(encoding="utf-8")
+        for phrase in (
+            "in-memory inventory",
+            "AggregatedResult",
+            "MultiResult",
+            "reset_failed_hosts()",
+            "nested subtasks",
+            "mocked NAPALM connection",
+            "SerialRunner",
+            "ThreadedRunner",
+            "close_connections",
+        ):
+            self.assertIn(phrase, guide)
+
+        result = self.run_validator(SKILL_DIR)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("unit_tests=PASS", result.stdout)
 
 
 if __name__ == "__main__":
