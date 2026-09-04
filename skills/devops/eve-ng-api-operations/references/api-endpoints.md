@@ -83,6 +83,8 @@ The installed version may expose additional network edit/delete routes. Discover
 
 EVE-NG uses `GET` for several operational actions. Treat a route by its effect, not by HTTP-method folklore.
 
+Some installed versions can reject this documented route for exact-node stop with a request-shape error even though exact-node start and node readback work. Treat that as installed-version API drift: preserve the sanitized response, confirm current state, inspect authorized Web UI traffic, and never substitute a broad collection stop. If an appliance-local wrapper is the only recovery path, require exact semantic ownership proof and API readback.
+
 ## Topology and pictures
 
 | Method | Route | Purpose |

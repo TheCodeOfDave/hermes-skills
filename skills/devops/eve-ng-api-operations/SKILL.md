@@ -93,7 +93,7 @@ EVE_BASE_URL='<scheme>://<eve-ng-host>'
 EVE_COOKIE="$(mktemp)"
 ```
 
-Use `https://` for Professional. If the appliance uses a private CA, trust that CA where practical. Use `curl --insecure` only when the user accepts the certificate-validation tradeoff for the named appliance; never make insecure TLS the silent default.
+Use `https://` for Professional. If the appliance uses a private CA, trust that CA where practical. When a legacy appliance presents a self-signed certificate without a usable subject alternative name, establish an **exact leaf-certificate fingerprint pin** through an independently trusted management path and require that pin on every request; this is appliance-scoped pinning, not a reusable `verify=false` default. Use `curl --insecure` only when the user accepts the certificate-validation tradeoff for the named appliance; never make insecure TLS the silent default.
 
 ## Session-Safe Authentication
 
@@ -230,6 +230,12 @@ curl --silent --show-error --cookie "$EVE_COOKIE" \
 
 Completion criterion: readback identifies the same object and proves the intended postcondition.
 
+Calibrate node status values against console readiness on the installed release before automating lifecycle gates. A reproduced Professional build reported state `3` is transitional and state `2` is running; therefore `status > 0` was an unsafe success predicate. Require the exact observed running and stopped values, poll through transitions, and keep console/process readiness separate from API state.
+
+If the documented exact-node stop route returns a request-shape failure while the same exact-node start route works, do not retry blindly or broaden to Stop All. Preserve the sanitized HTTP/JSend classification, re-read the node, and use the API-drift procedure. An appliance-local lifecycle wrapper is an exceptional recovery path only when the user authorized the effect, the shell path is already trusted, and prior absence plus marker-bearing **semantic ownership invariants** prove the exact disposable lab and node. Re-read through the API afterward.
+
+Do not use the imported `.unl` byte hash as a post-start ownership invariant: EVE mutates runtime fields in that file. Keep the immutable source/derived hashes for lineage, then compare the marker and exact node IDs, labels, templates, and UUIDs before an appliance-local recovery action.
+
 ### 7. Logout and remove session residue
 
 ```bash
@@ -356,6 +362,8 @@ Completion criterion: the adapted request is grounded in the live installed vers
 8. **Premature destructive calls.** Wipe and delete routes are not diagnostics. Confirm exact authorization and preserve required state first.
 9. **Assumed JSend envelopes.** A missing object may return `status: fail` or omit `status`. Verify exact HTTP status and ownership context rather than inventing a universal envelope.
 10. **Pattern-based test cleanup.** A generated-looking name is not proof of ownership. Require preflight absence plus marker-bearing readback, and retain ambiguous objects for manual review.
+11. **Loose lifecycle predicates.** A positive status can be transitional. Calibrate exact state values and prove guest readiness separately.
+12. **Runtime file-hash ownership.** EVE can rewrite `.unl` bytes after launch. Use semantic identity for runtime actions and immutable hashes only for artifact lineage.
 
 ## Verification Checklist
 

@@ -59,6 +59,15 @@ class DeterministicValidatorTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("endpoint_method_route_unique", result.stderr)
 
+    def test_live_lifecycle_drift_contract_is_documented(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        endpoints = (SKILL_DIR / "references" / "api-endpoints.md").read_text(encoding="utf-8")
+        self.assertIn("state `3` is transitional", skill)
+        self.assertIn("state `2` is running", skill)
+        self.assertIn("exact leaf-certificate fingerprint pin", skill)
+        self.assertIn("semantic ownership invariants", skill)
+        self.assertIn("installed versions can reject this documented route", endpoints)
+
 
 if __name__ == "__main__":
     unittest.main()
